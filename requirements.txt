@@ -1,0 +1,9 @@
+scikit-learn
+pandas
+numpy
+tqdm
+opencv-contrib-python-headless
+albumentations
+timm
+wandb
+torch_optimizer
