@@ -116,23 +116,23 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-sd', '--save_dir', type=str, default='/hdd/sy/weights/food-kt')
     parser.add_argument('-m', '--model', type=str, default='convnext_tiny_in22ft1k')
-    parser.add_argument('-is', '--img_size', type=int, default=224)
+    parser.add_argument('-is', '--img_size', type=int, default=384)
     parser.add_argument('-se', '--seed', type=int, default=42)
 
-    parser.add_argument('-e', '--epochs', type=int, default=5)
-    parser.add_argument('-we', '--warm_epoch', type=int, default=1)
-    parser.add_argument('-bs', '--batch_size', type=int, default=12)
+    parser.add_argument('-e', '--epochs', type=int, default=1)
+    parser.add_argument('-we', '--warm_epoch', type=int, default=0)
+    parser.add_argument('-bs', '--batch_size', type=int, default=64)
     parser.add_argument('-nw', '--num_workers', type=int, default=8)
 
     parser.add_argument('-l', '--loss', type=str, default='ce', choices=['ce', 'focal'])
-    parser.add_argument('-ot', '--optimizer', type=str, default='adam',
+    parser.add_argument('-ot', '--optimizer', type=str, default='adamw',
                         choices=['adam', 'radam', 'adamw', 'adamp', 'ranger', 'lamb'])
     parser.add_argument('-sc', '--scheduler', type=str, default='cos_base', choices=['cos_base', 'cos', 'cycle'])
     parser.add_argument('-lr', '--learning_rate', type=float, default=1e-4)
     parser.add_argument('-wd', '--weight_decay', type=float, default=0.05)
 
     # data split configs:
-    parser.add_argument('-ds', '--data_split', type=str, default='Split_base', choices=['Split_base', 'StratifiedKFold'])
+    parser.add_argument('-ds', '--data_split', type=str, default='StratifiedKFold', choices=['Split_base', 'StratifiedKFold'])
     parser.add_argument('-ns', '--n_splits', type=int, default=5)
     parser.add_argument('-vr', '--val_ratio', type=float, default=0.2)
 
@@ -142,7 +142,7 @@ if __name__ == '__main__':
     parser.add_argument('-cms', '--cutmix_stop', type=int, default=20)
 
     # wandb config:
-    parser.add_argument('--wandb', type=bool, default=True)
+    parser.add_argument('--wandb', type=bool, default=False)
 
     # amp config:
     parser.add_argument('--amp', type=bool, default=True)
@@ -170,15 +170,16 @@ if __name__ == '__main__':
     for fold in range(len(folds)):
         train_data, train_lb, val_data, val_lb = folds[fold]
 
+        c_date, c_time = datetime.now().strftime("%m%d/%H%M%S").split('/')
+        save_dir = os.path.join(args.save_dir, f'{args.model}_{c_date}_{c_time}_fold_{fold}')
+        os.makedirs(save_dir)
+
         #### SET WANDB ####
         run = None
         if args.wandb:
             wandb.login(key='2c50c2cde9c8bf3a50ac9d7f40f1405fbb636e41')
-            c_date, c_time = datetime.now().strftime("%m%d/%H%M%S").split('/')
             run = wandb.init(project='food-kt', name=f'{args.model}_{c_date}_{c_time}_fold_{fold}')
             wandb.config.update(args)
-            save_dir = os.path.join(args.save_dir, f'{args.model}_{c_date}_{c_time}_fold_{fold}')
-            os.makedirs(save_dir)
         ###################
 
         #### LOAD DATASET ####
