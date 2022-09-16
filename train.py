@@ -119,30 +119,34 @@ if __name__ == '__main__':
     parser.add_argument('-is', '--img_size', type=int, default=384)
     parser.add_argument('-se', '--seed', type=int, default=42)
 
-    parser.add_argument('-e', '--epochs', type=int, default=1)
-    parser.add_argument('-we', '--warm_epoch', type=int, default=0)
+    parser.add_argument('-e', '--epochs', type=int, default=50)
+    parser.add_argument('-we', '--warm_epoch', type=int, default=5)
     parser.add_argument('-bs', '--batch_size', type=int, default=64)
     parser.add_argument('-nw', '--num_workers', type=int, default=8)
 
     parser.add_argument('-l', '--loss', type=str, default='ce', choices=['ce', 'focal'])
     parser.add_argument('-ot', '--optimizer', type=str, default='adamw',
                         choices=['adam', 'radam', 'adamw', 'adamp', 'ranger', 'lamb'])
-    parser.add_argument('-sc', '--scheduler', type=str, default='cos_base', choices=['cos_base', 'cos', 'cycle'])
     parser.add_argument('-lr', '--learning_rate', type=float, default=1e-4)
+    parser.add_argument('-sc', '--scheduler', type=str, default='cos_base', choices=['cos_base', 'cos', 'cycle'])
+    parser.add_argument('-mxlr', '--max_lr', type=float, default=3e-3)      # scheduler - cycle
+    parser.add_argument('-mnlr', '--min_lr', type=float, default=1e-6)      # scheduler - cos
+    parser.add_argument('-tm', '--tmax', type=float, default=20)      # scheduler - cos
     parser.add_argument('-wd', '--weight_decay', type=float, default=0.05)
 
     # data split configs:
-    parser.add_argument('-ds', '--data_split', type=str, default='StratifiedKFold', choices=['Split_base', 'StratifiedKFold'])
+    parser.add_argument('-ds', '--data_split', type=str, default='Split_base',
+                        choices=['Split_base', 'StratifiedKFold'])
     parser.add_argument('-ns', '--n_splits', type=int, default=5)
     parser.add_argument('-vr', '--val_ratio', type=float, default=0.2)
 
     # cut mix
-    parser.add_argument('-cm', '--cutmix', type=bool, default=False)
+    parser.add_argument('-cm', '--cutmix', type=bool, default=True)
     parser.add_argument('-mp', '--mix_prob', type=float, default=0.3)
-    parser.add_argument('-cms', '--cutmix_stop', type=int, default=20)
+    parser.add_argument('-cms', '--cutmix_stop', type=int, default=45)
 
     # wandb config:
-    parser.add_argument('--wandb', type=bool, default=False)
+    parser.add_argument('--wandb', type=bool, default=True)
 
     # amp config:
     parser.add_argument('--amp', type=bool, default=True)
