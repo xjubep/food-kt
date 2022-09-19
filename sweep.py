@@ -110,7 +110,6 @@ def valid(args, model, val_loader, criterion, epoch, wandb):
     return val_mean_loss, val_mean_acc
 
 
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-sd', '--save_dir', type=str, default='/hdd/sy/weights/food-kt')
@@ -128,9 +127,9 @@ if __name__ == '__main__':
                         choices=['adam', 'radam', 'adamw', 'adamp', 'ranger', 'lamb'])
     parser.add_argument('-lr', '--learning_rate', type=float, default=1e-4)
     parser.add_argument('-sc', '--scheduler', type=str, default='cos_base', choices=['cos_base', 'cos', 'cycle'])
-    parser.add_argument('-mxlr', '--max_lr', type=float, default=3e-3)      # scheduler - cycle
-    parser.add_argument('-mnlr', '--min_lr', type=float, default=1e-6)      # scheduler - cos
-    parser.add_argument('-tm', '--tmax', type=float, default=20)            # scheduler - cos
+    parser.add_argument('-mxlr', '--max_lr', type=float, default=3e-3)  # scheduler - cycle
+    parser.add_argument('-mnlr', '--min_lr', type=float, default=1e-6)  # scheduler - cos
+    parser.add_argument('-tm', '--tmax', type=float, default=20)  # scheduler - cos
     parser.add_argument('-wd', '--weight_decay', type=float, default=0.05)
 
     # data split configs:
@@ -170,10 +169,6 @@ if __name__ == '__main__':
     for fold in range(len(folds)):
         train_data, train_lb, val_data, val_lb = folds[fold]
 
-        c_date, c_time = datetime.now().strftime("%m%d/%H%M%S").split('/')
-        save_dir = os.path.join(args.save_dir, f'{args.model}_{c_date}_{c_time}_fold_{fold}')
-        os.makedirs(save_dir)
-
         #### SET WANDB ####
         run = None
         wandb.init(config=args)
@@ -184,8 +179,10 @@ if __name__ == '__main__':
         train_dataset = FoodKT(args, train_data, train_lb, mode='train')
         val_dataset = FoodKT(args, val_data, val_lb, mode='valid')
 
-        train_loader = DataLoader(train_dataset, batch_size=config.batch_size, num_workers=config.num_workers, shuffle=True)
-        val_loader = DataLoader(val_dataset, batch_size=config.batch_size, num_workers=config.num_workers, shuffle=False)
+        train_loader = DataLoader(train_dataset, batch_size=config.batch_size, num_workers=config.num_workers,
+                                  shuffle=True)
+        val_loader = DataLoader(val_dataset, batch_size=config.batch_size, num_workers=config.num_workers,
+                                shuffle=False)
         iter_per_epoch = len(train_loader)
         print('> DATAMODULE BUILT')
         ######################
@@ -221,4 +218,3 @@ if __name__ == '__main__':
         del model
         del optimizer, scheduler
         del train_dataset, val_dataset
-
