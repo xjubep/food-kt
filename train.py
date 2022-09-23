@@ -77,6 +77,8 @@ def valid(args, model, val_loader, criterion, epoch, wandb):
     model.eval()
     total_val_loss = 0
     total_val_score = 0
+    preds = []
+    answer = []
     batch_iter = tqdm(enumerate(val_loader), 'Validating', total=len(val_loader), ncols=120)
 
     for batch_idx, batch_item in batch_iter:
@@ -90,6 +92,8 @@ def valid(args, model, val_loader, criterion, epoch, wandb):
         val_score = score_function(label, pred)
         total_val_loss += val_loss
         total_val_score += val_score
+        preds.extend(torch.argmax(pred, dim=1).clone().cpu().numpy())
+        answer.extend(label.cpu().numpy())
 
         log = f'[EPOCH {epoch}] Valid Loss : {val_loss.item():.4f}({total_val_loss / (batch_idx + 1):.4f}), '
         log += f'Valid Acc : {val_score.item():.4f}({total_val_score / (batch_idx + 1):.4f})'
@@ -102,6 +106,7 @@ def valid(args, model, val_loader, criterion, epoch, wandb):
 
     val_mean_loss = total_val_loss / len(batch_iter)
     val_mean_acc = total_val_score / len(batch_iter)
+
     batch_iter.close()
 
     if args.wandb:
@@ -113,27 +118,29 @@ def valid(args, model, val_loader, criterion, epoch, wandb):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-sd', '--save_dir', type=str, default='/hdd/sy/weights/food-kt')
-    parser.add_argument('-m', '--model', type=str, default='tf_efficientnet_b3_ns')
+    parser.add_argument('-m', '--model', type=str, default='efficientnetv2_rw_m')
     parser.add_argument('-is', '--img_size', type=int, default=384)
     parser.add_argument('-se', '--seed', type=int, default=42)
+    parser.add_argument('-av', '--aug_ver', type=int, default=0)
 
-    parser.add_argument('-e', '--epochs', type=int, default=60)
-    parser.add_argument('-we', '--warm_epoch', type=int, default=6)
-    parser.add_argument('-bs', '--batch_size', type=int, default=64)
+    parser.add_argument('-e', '--epochs', type=int, default=50)
+    parser.add_argument('-we', '--warm_epoch', type=int, default=5)
+    parser.add_argument('-bs', '--batch_size', type=int, default=32)
     parser.add_argument('-nw', '--num_workers', type=int, default=8)
 
-    parser.add_argument('-l', '--loss', type=str, default='ce', choices=['ce', 'focal'])
+    parser.add_argument('-l', '--loss', type=str, default='smoothing_ce', choices=['ce', 'focal', 'smoothing_ce'])
+    parser.add_argument('-ls', '--label_smoothing', type=float, default=0.5)
     parser.add_argument('-ot', '--optimizer', type=str, default='adamw',
                         choices=['adam', 'radam', 'adamw', 'adamp', 'ranger', 'lamb'])
-    parser.add_argument('-lr', '--learning_rate', type=float, default=1e-3)
+    parser.add_argument('-lr', '--learning_rate', type=float, default=3e-3)
     parser.add_argument('-sc', '--scheduler', type=str, default='cos_base', choices=['cos_base', 'cos', 'cycle'])
-    parser.add_argument('-mxlr', '--max_lr', type=float, default=3e-3)      # scheduler - cycle
-    parser.add_argument('-mnlr', '--min_lr', type=float, default=1e-6)      # scheduler - cos
-    parser.add_argument('-tm', '--tmax', type=float, default=20)            # scheduler - cos
+    parser.add_argument('-mxlr', '--max_lr', type=float, default=3e-3)  # scheduler - cycle
+    parser.add_argument('-mnlr', '--min_lr', type=float, default=1e-6)  # scheduler - cos
+    parser.add_argument('-tm', '--tmax', type=float, default=20)  # scheduler - cos
     parser.add_argument('-wd', '--weight_decay', type=float, default=0.05)
 
     # data split configs:
-    parser.add_argument('-ds', '--data_split', type=str, default='StratifiedKFold',
+    parser.add_argument('-ds', '--data_split', type=str, default='Split_base',
                         choices=['Split_base', 'StratifiedKFold'])
     parser.add_argument('-ns', '--n_splits', type=int, default=5)
     parser.add_argument('-vr', '--val_ratio', type=float, default=0.2)
@@ -141,7 +148,7 @@ if __name__ == '__main__':
     # cut mix
     parser.add_argument('-cm', '--cutmix', type=bool, default=True)
     parser.add_argument('-mp', '--mix_prob', type=float, default=0.3)
-    parser.add_argument('-cms', '--cutmix_stop', type=int, default=61)
+    parser.add_argument('-cms', '--cutmix_stop', type=int, default=51)
 
     # wandb config:
     parser.add_argument('--wandb', type=bool, default=True)
@@ -166,76 +173,76 @@ if __name__ == '__main__':
     train_label = [data.split('/')[-2] for data in train_data]  # '가자미전'
     train_labels = [label_encoder[k] for k in train_label]  # 0
 
-    folds = set_data_split(args, train_data, train_labels)
+    val_data = sorted(glob('/hdd/sy/food-kt/val/*/*.jpg'))  # len(train_data): 10,000
+    val_label = [data.split('/')[-2] for data in val_data]  # '가자미전'
+    val_labels = [label_encoder[k] for k in val_label]  # 0
     #####################
 
-    for fold in range(len(folds)):
-        train_data, train_lb, val_data, val_lb = folds[fold]
+    c_date, c_time = datetime.now().strftime("%m%d/%H%M%S").split('/')
+    save_dir = os.path.join(args.save_dir, f'{args.model}_{c_date}_{c_time}')
+    os.makedirs(save_dir)
 
-        c_date, c_time = datetime.now().strftime("%m%d/%H%M%S").split('/')
-        save_dir = os.path.join(args.save_dir, f'{args.model}_{c_date}_{c_time}_fold_{fold}')
-        os.makedirs(save_dir)
+    #### SET WANDB ####
+    run = None
+    if args.wandb:
+        wandb_api_key = os.environ.get('WANDB_API_KEY')
+        wandb.login(key=wandb_api_key)
+        run = wandb.init(project='food-kt', name=f'{args.model}_{c_date}_{c_time}')
+        wandb.config.update(args)
+    ###################
 
-        #### SET WANDB ####
-        run = None
-        if args.wandb:
-            wandb.login(key='2c50c2cde9c8bf3a50ac9d7f40f1405fbb636e41')
-            run = wandb.init(project='food-kt', name=f'{args.model}_{c_date}_{c_time}_fold_{fold}')
-            wandb.config.update(args)
-        ###################
+    #### LOAD DATASET ####
+    train_dataset = FoodKT(args, train_data, train_labels, mode='train')
+    val_dataset = FoodKT(args, val_data, val_labels, mode='valid')
 
-        #### LOAD DATASET ####
-        train_dataset = FoodKT(args, train_data, train_lb, mode='train')
-        val_dataset = FoodKT(args, val_data, val_lb, mode='valid')
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=args.num_workers, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, num_workers=args.num_workers, shuffle=False)
+    iter_per_epoch = len(train_loader)
+    print('> DATAMODULE BUILT')
+    ######################
 
-        train_loader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=args.num_workers, shuffle=True)
-        val_loader = DataLoader(val_dataset, batch_size=args.batch_size, num_workers=args.num_workers, shuffle=False)
-        iter_per_epoch = len(train_loader)
-        print('> DATAMODULE BUILT')
-        ######################
+    #### LOAD MODEL ####
+    model = ImageModel(model_name=args.model, class_n=len(label_description), mode='train')
+    model = model.to(args.device)
+    if torch.cuda.device_count() > 1:
+        model = torch.nn.DataParallel(model)
+    print('> MODEL BUILT')
+    ####################
 
-        #### LOAD MODEL ####
-        model = ImageModel(model_name=args.model, class_n=len(label_description), mode='train')
-        model = model.to(args.device)
-        if torch.cuda.device_count() > 1:
-            model = torch.nn.DataParallel(model)
-        print('> MODEL BUILT')
-        ####################
+    #### SET TRAINER ####
+    optimizer = set_optimizer(args, model)
+    criterion = set_loss(args)
+    scheduler = set_scheduler(args, optimizer, iter_per_epoch)
+    warmup_scheduler = WarmUpLR(optimizer, iter_per_epoch * args.warm_epoch) if args.warm_epoch else None
+    print('> TRAINER SET')
+    #####################
 
-        #### SET TRAINER ####
-        optimizer = set_optimizer(args, model)
-        criterion = set_loss(args)
-        scheduler = set_scheduler(args, optimizer, iter_per_epoch)
-        warmup_scheduler = WarmUpLR(optimizer, iter_per_epoch * args.warm_epoch) if args.warm_epoch else None
-        print('> TRAINER SET')
-        #####################
+    best_val_acc = .0
+    best_val_loss = 9999.
+    best_epoch = 0
 
-        best_val_acc = .0
-        best_val_loss = 9999.
-        best_epoch = 0
+    print('> START TRAINING')
+    for epoch in range(1, args.epochs + 1):
+        train(args, model, train_loader, criterion, optimizer, warmup_scheduler, scheduler, scaler, epoch, wandb)
+        val_loss, val_acc = valid(args, model, val_loader, criterion, epoch, wandb)
+        if val_acc > best_val_acc:
+            best_epoch = epoch
+            best_val_loss = min(val_loss, best_val_loss)
+            best_val_acc = max(val_acc, best_val_acc)
 
-        print('> START TRAINING')
-        for epoch in range(1, args.epochs + 1):
-            train(args, model, train_loader, criterion, optimizer, warmup_scheduler, scheduler, scaler, epoch, wandb)
-            val_loss, val_acc = valid(args, model, val_loader, criterion, epoch, wandb)
-            if val_acc > best_val_acc:
-                best_epoch = epoch
-                best_val_loss = min(val_loss, best_val_loss)
-                best_val_acc = max(val_acc, best_val_acc)
+            torch.save({'model_state_dict': model.module.state_dict(),
+                        'optimizer_state_dict': optimizer.state_dict(),
+                        'scheduler': scheduler.state_dict(),
+                        'epoch': epoch, },
+                       f'{save_dir}/ckpt_best.pt')
+            print(f'> SAVED model ({epoch:02d}) at {save_dir}/ckpt_best.pt')
 
-                torch.save({'model_state_dict': model.module.state_dict(),
-                            'optimizer_state_dict': optimizer.state_dict(),
-                            'scheduler': scheduler.state_dict(),
-                            'epoch': epoch, },
-                           f'{save_dir}/ckpt_best_fold_{fold:01d}.pt')
-                print(f'> SAVED model ({epoch:02d}) at {save_dir}/ckpt_best_fold_{fold:01d}.pt')
+        if args.scheduler in ['cos_base', 'cos']:
+            scheduler.step()
 
-            if args.scheduler in ['cos_base', 'cos']:
-                scheduler.step()
+    del model
+    del optimizer, scheduler
+    del train_dataset, val_dataset
 
-        del model
-        del optimizer, scheduler
-        del train_dataset, val_dataset
-
-        if args.wandb:
-            run.finish()
+    if args.wandb:
+        run.finish()

@@ -66,6 +66,8 @@ def set_loss(args):
         criterion = nn.CrossEntropyLoss()
     elif args.loss == 'focal':
         criterion = FocalLoss()
+    elif args.loss == 'smoothing_ce':
+        criterion = nn.CrossEntropyLoss(label_smoothing=args.label_smoothing)
 
     return criterion
 
@@ -177,3 +179,7 @@ def init_logger(save_dir, comment=None):
     log_dir = os.path.join(save_dir, c_date, comment)
 
     return log_dir
+
+
+def gem(x, p=3, eps=1e-6):
+    return F.avg_pool2d(x.clamp(min=eps).pow(p), (x.size(-2), x.size(-1))).pow(1. / p)
