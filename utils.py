@@ -10,6 +10,8 @@ import torch_optimizer as optim
 from sklearn.metrics import accuracy_score
 from sklearn.model_selection import train_test_split, StratifiedKFold
 from torch.optim.lr_scheduler import _LRScheduler
+from albumentations.core.transforms_interface import ImageOnlyTransform
+import albumentations as A
 
 
 def set_data_split(args, train_data, train_labels):
@@ -57,6 +59,10 @@ def set_optimizer(args, model):
         optimizer = optim.Lamb(filter(lambda p: p.requires_grad, model.parameters()),
                                lr=args.learning_rate,
                                weight_decay=args.weight_decay)
+    elif args.optimizer == 'adabound':
+        optimizer = optim.AdaBound(filter(lambda p: p.requires_grad, model.parameters()),
+                                   lr=args.learning_rate,
+                                   weight_decay=args.weight_decay)
     return optimizer
 
 
@@ -181,5 +187,83 @@ def init_logger(save_dir, comment=None):
     return log_dir
 
 
-def gem(x, p=3, eps=1e-6):
-    return F.avg_pool2d(x.clamp(min=eps).pow(p), (x.size(-2), x.size(-1))).pow(1. / p)
+class GeM(nn.Module):
+    def __init__(self, p=3, eps=1e-6):
+        super(GeM, self).__init__()
+        self.p = nn.Parameter(torch.ones(1) * p)
+        self.eps = eps
+
+    def forward(self, x):
+        return self.gem(x, p=self.p, eps=self.eps)
+
+    def gem(self, x, p=3, eps=1e-6):
+        return F.avg_pool2d(x.clamp(min=eps).pow(p), (x.size(-2), x.size(-1))).pow(1. / p)
+
+    def __repr__(self):
+        return self.__class__.__name__ + '(' + 'p=' + '{:.4f}'.format(self.p.data.tolist()[0]) + ', ' + 'eps=' + str(
+            self.eps) + ')'
+
+
+class ArcMarginProduct(nn.Module):
+    def __init__(self, in_features, out_features):
+        super().__init__()
+        self.weight = nn.Parameter(torch.Tensor(out_features, in_features))
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        nn.init.xavier_uniform_(self.weight)
+        # stdv = 1. / math.sqrt(self.weight.size(1))
+        # self.weight.data.uniform_(-stdv, stdv)
+
+    def forward(self, features):
+        cosine = F.linear(F.normalize(features), F.normalize(self.weight))
+        return cosine
+
+
+class AugMix(ImageOnlyTransform):
+    """Augmentations mix to Improve Robustness and Uncertainty.
+    Args:
+        image (np.ndarray): Raw input image of shape (h, w, c)
+        severity (int): Severity of underlying augmentation operators.
+        width (int): Width of augmentation chain
+        depth (int): Depth of augmentation chain. -1 enables stochastic depth uniformly
+          from [1, 3]
+        alpha (float): Probability coefficient for Beta and Dirichlet distributions.
+        augmentations (list of augmentations): Augmentations that need to mix and perform.
+    Targets:
+        image
+    Image types:
+        uint8, float32
+    """
+
+    def __init__(self, width=2, depth=2, alpha=0.5, augmentations=[A.HorizontalFlip()], always_apply=False, p=0.5):
+        super(AugMix, self).__init__(always_apply, p)
+        self.width = width
+        self.depth = depth
+        self.alpha = alpha
+        self.augmentations = augmentations
+        self.ws = np.float32(np.random.dirichlet([self.alpha] * self.width))
+        self.m = np.float32(np.random.beta(self.alpha, self.alpha))
+
+    def apply_op(self, image, op):
+        image = op(image=image)["image"]
+        return image
+
+    def apply(self, img, **params):
+        mix = np.zeros_like(img)
+        for i in range(self.width):
+            image_aug = img.copy()
+
+            for _ in range(self.depth):
+                op = np.random.choice(self.augmentations)
+                image_aug = self.apply_op(image_aug, op)
+
+            mix = np.add(mix, self.ws[i] * image_aug, out=mix, casting="unsafe")
+
+        mixed = (1 - self.m) * img + self.m * mix
+        if img.dtype in ["uint8", "uint16", "uint32", "uint64"]:
+            mixed = np.clip((mixed), 0, 255).astype(np.uint8)
+        return mixed
+
+    def get_transform_init_args_names(self):
+        return ("width", "depth", "alpha")

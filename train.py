@@ -6,7 +6,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from datasets import FoodKT
-from models import ImageModel
+from models import ImageModel, DOLG
 from utils import *
 
 
@@ -117,11 +117,12 @@ def valid(args, model, val_loader, criterion, epoch, wandb):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
+    parser.add_argument('-dd', '--data_dir', type=str, default='/hdd/sy/food-kt')
     parser.add_argument('-sd', '--save_dir', type=str, default='/hdd/sy/weights/food-kt')
-    parser.add_argument('-m', '--model', type=str, default='efficientnetv2_rw_m')
+    parser.add_argument('-m', '--model', type=str, default='tf_efficientnet_b4')
     parser.add_argument('-is', '--img_size', type=int, default=384)
     parser.add_argument('-se', '--seed', type=int, default=42)
-    parser.add_argument('-av', '--aug_ver', type=int, default=0)
+    parser.add_argument('-av', '--aug_ver', type=int, default=9)
 
     parser.add_argument('-e', '--epochs', type=int, default=50)
     parser.add_argument('-we', '--warm_epoch', type=int, default=5)
@@ -131,8 +132,9 @@ if __name__ == '__main__':
     parser.add_argument('-l', '--loss', type=str, default='smoothing_ce', choices=['ce', 'focal', 'smoothing_ce'])
     parser.add_argument('-ls', '--label_smoothing', type=float, default=0.5)
     parser.add_argument('-ot', '--optimizer', type=str, default='adamw',
-                        choices=['adam', 'radam', 'adamw', 'adamp', 'ranger', 'lamb'])
+                        choices=['adam', 'radam', 'adamw', 'adamp', 'ranger', 'lamb', 'adabound'])
     parser.add_argument('-lr', '--learning_rate', type=float, default=3e-3)
+
     parser.add_argument('-sc', '--scheduler', type=str, default='cos_base', choices=['cos_base', 'cos', 'cycle'])
     parser.add_argument('-mxlr', '--max_lr', type=float, default=3e-3)  # scheduler - cycle
     parser.add_argument('-mnlr', '--min_lr', type=float, default=1e-6)  # scheduler - cos
@@ -147,7 +149,7 @@ if __name__ == '__main__':
 
     # cut mix
     parser.add_argument('-cm', '--cutmix', type=bool, default=True)
-    parser.add_argument('-mp', '--mix_prob', type=float, default=0.3)
+    parser.add_argument('-mp', '--mix_prob', type=float, default=0.5)
     parser.add_argument('-cms', '--cutmix_stop', type=int, default=51)
 
     # wandb config:
@@ -165,17 +167,17 @@ if __name__ == '__main__':
     #########################
 
     #### SET DATASET ####
-    label_description = sorted(os.listdir('/hdd/sy/food-kt/train'))
+    label_description = sorted(os.listdir(os.path.join(args.data_dir, 'train')))
     label_encoder = {key: idx for idx, key in enumerate(label_description)}
     label_decoder = {val: key for key, val in label_encoder.items()}
 
-    train_data = sorted(glob('/hdd/sy/food-kt/train/*/*.jpg'))  # len(train_data): 10,000
+    train_data = sorted(glob(f'{os.path.join(args.data_dir, "train")}/*/*.jpg'))  # len(train_data): 10,000
     train_label = [data.split('/')[-2] for data in train_data]  # '가자미전'
-    train_labels = [label_encoder[k] for k in train_label]  # 0
+    train_labels = [label_encoder[k] for k in train_label]      # 0
 
-    val_data = sorted(glob('/hdd/sy/food-kt/val/*/*.jpg'))  # len(train_data): 10,000
+    val_data = sorted(glob(f'{os.path.join(args.data_dir, "val")}/*/*.jpg'))  # len(train_data): 10,000
     val_label = [data.split('/')[-2] for data in val_data]  # '가자미전'
-    val_labels = [label_encoder[k] for k in val_label]  # 0
+    val_labels = [label_encoder[k] for k in val_label]      # 0
     #####################
 
     c_date, c_time = datetime.now().strftime("%m%d/%H%M%S").split('/')

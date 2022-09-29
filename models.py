@@ -1,5 +1,8 @@
 import timm
+import torch
 from torch import nn
+
+from utils import GeM, ArcMarginProduct
 
 
 class ImageModel(nn.Module):
@@ -33,3 +36,33 @@ class ImageModel(nn.Module):
     def forward(self, x):
         x = self.encoder(x)
         return x
+
+
+class DOLG(nn.Module):
+    def __init__(self, model_name, class_n, mode='train'):
+        super(DOLG, self).__init__()
+        self.model_name = model_name.lower()
+        self.class_n = class_n
+        self.mode = mode
+        self.encoder = timm.create_model(self.model_name, pretrained=False)
+
+        self.fc_in_features = self.encoder.num_features
+        self.global_pool = GeM()
+        self.embedding_size = 2048
+
+        self.neck = nn.Sequential(
+            nn.Linear(self.fc_in_features, self.embedding_size, bias=True),
+            nn.BatchNorm1d(self.embedding_size),
+            torch.nn.PReLU()
+        )
+
+        self.head = ArcMarginProduct(self.embedding_size, self.class_n)
+
+    def forward(self, x):
+        x = self.encoder.forward_features(x)
+        x = self.global_pool(x)
+        x = x[:, :, 0, 0]
+        x = self.neck(x)
+        logits = self.head(x)
+
+        return logits
